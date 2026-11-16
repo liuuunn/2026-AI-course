@@ -1,5 +1,5 @@
 // 豆豆貼 PWA service worker
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `doudou-shell-${VERSION}`;
 const RUNTIME = `doudou-runtime-${VERSION}`;
 const SHELL_FILES = [
@@ -29,6 +29,8 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (!url.protocol.startsWith('http')) return;
+  // Order API (Google Apps Script): always live, never cached.
+  if (/(^|\.)script\.google\.com$|(^|\.)googleusercontent\.com$/.test(url.hostname)) return;
 
   // Pages: network first so updates show up, cached copy when offline.
   if (req.mode === 'navigate') {
