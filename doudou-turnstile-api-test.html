@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>豆豆貼｜Supabase + Turnstile API 測試（僅供開發）</title>
+<style>
+:root{font-family:system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;color:#20312b;background:#f4f7f4}*{box-sizing:border-box}body{margin:0}main{max-width:900px;margin:35px auto;padding:0 18px 70px}h1{font-size:26px;margin:0 0 8px}h2{font-size:20px}p{line-height:1.65}.hint{color:#65776c;font-size:14px}.panel{background:white;border:1px solid #dce5df;border-radius:16px;padding:24px;margin-top:18px;box-shadow:0 8px 22px rgba(24,50,28,.04)}label{font-size:14px;font-weight:600;display:block;margin:13px 0 6px}input,textarea{width:100%;font:inherit;border:1px solid #b9c8bd;border-radius:8px;padding:11px 12px;background:white;color:#20312b}input:focus,textarea:focus{outline:2px solid #36986a;outline-offset:1px}button{font:inherit;border:0;border-radius:8px;padding:11px 16px;cursor:pointer;background:#1f7652;color:white;font-weight:600}button.secondary{background:#e8efea;color:#24533d}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.tabs{display:flex;gap:8px;margin-top:22px}.tabs button{background:#e5ede7;color:#3d5847}.tabs button.active{background:#1f7652;color:#fff}.widget{padding:15px 0;min-height:70px}.result{white-space:pre-wrap;overflow-wrap:anywhere;padding:15px;background:#15241e;color:#d6f5df;border-radius:10px;font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;min-height:68px}.warning{border-left:4px solid #a86917;padding:10px 14px;background:#fff8e9;border-radius:6px;font-size:14px}.meta{font-size:13px;color:#456a54}.hidden{display:none!important}.status{font-size:14px;font-weight:600;color:#336849}.tag{display:inline-block;background:#dfeee4;color:#275c3b;padding:3px 8px;border-radius:5px;font-size:12px}.footer{font-size:13px;color:#65776c;margin-top:22px}@media(max-width:650px){.columns{grid-template-columns:1fr}.panel{padding:17px}main{margin:20px auto}}
+</style>
+<script>
+// 必須在 Turnstile SDK 載入前定義回呼
+const SITE_KEY = '0x4AAAAAAGM8h4BpMAX5SpfJ';
+const API_BASE = 'https://rbbaqgfmgladxdcwfrey.supabase.co/functions/v1';
+const state = { lookup:{widgetId:null,token:''},create:{widgetId:null,token:''} };
+function setStatus(mode,msg){document.getElementById(mode+'-status').textContent=msg}
+function setToken(mode,token){state[mode].token=token;setStatus(mode,token?'驗證完成，Token 已就緒':'尚未完成驗證')}
+function resetWidget(mode){setToken(mode,'');if(window.turnstile&&state[mode].widgetId!==null){window.turnstile.reset(state[mode].widgetId)}}
+function onTurnstileReady(){for(const mode of ['lookup','create']){try{state[mode].widgetId=window.turnstile.render('#'+mode+'-widget',{
+  sitekey:SITE_KEY,theme:'light',
+  callback:(token)=>setToken(mode,token),
+  'expired-callback':()=>setToken(mode,''),
+  'timeout-callback':()=>setToken(mode,''),
+  'error-callback':(code)=>{setToken(mode,'');setStatus(mode,'驗證元件錯誤：'+code)}
+});}catch(err){setStatus(mode,'Widget 載入失敗：'+err.message)}}}
+function getKey(){const key=document.getElementById('public-key').value.trim();if(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))throw new Error('請輸入 Supabase Publishable Key（不可輸入 Secret / service_role key）');return key}
+function showResult(mode,text){document.getElementById(mode+'-result').textContent=text}
+async function invoke(mode,payload){let btn=document.getElementById(mode+'-submit');btn.disabled=true;showResult(mode,'傳送中…');try{
+ const key=getKey();if(!state[mode].token)throw new Error('請先完成此區的人機驗證');
+ const response=await fetch(API_BASE+'/'+(mode==='lookup'?'lookup-order':'create-order'),{method:'POST',headers:{'apikey':key,'Content-Type':'application/json'},body:JSON.stringify({...payload,turnstileToken:state[mode].token}),cache:'no-store'});
+ const raw=await response.text();let data;try{data=JSON.parse(raw)}catch{data={raw:raw.slice(0,2000)}};
+ showResult(mode,'HTTP '+response.status+' '+response.statusText+'\n'+JSON.stringify(data,null,2));
+ }catch(e){showResult(mode,'請求失敗：'+e.message+'\n若為 Failed to fetch，請檢查 GitHub Pages 網域、瀏覽器 Console 與 Edge Function CORS。')}
+ finally{resetWidget(mode);btn.disabled=false}
+}
+function pickTab(mode){for(const kind of ['lookup','create']){document.getElementById(kind+'-panel').classList.toggle('hidden',kind!==mode);document.getElementById(kind+'-tab').classList.toggle('active',kind===mode)}}
+function uuidv4(){if(globalThis.crypto&&crypto.randomUUID)return crypto.randomUUID();throw new Error('瀏覽器不支援 crypto.randomUUID，請使用 HTTPS 開啟')}
+function init(){document.getElementById('lookup-form').addEventListener('submit',e=>{e.preventDefault();invoke('lookup',{orderId:document.getElementById('order-id').value.trim(),phone:document.getElementById('lookup-phone').value.trim()})});
+ document.getElementById('create-form').addEventListener('submit',e=>{e.preventDefault();if(!confirm('這會在 Supabase 正式專案建立一筆【測試訂單】，確定送出嗎？'))return;invoke('create',{method:'外帶',name:document.getElementById('create-name').value.trim(),phone:document.getElementById('create-phone').value.trim(),address:'',note:'Turnstile E2E 測試訂單',items:[{id:'p1',qty:1}],idempotencyKey:document.getElementById('idem-key').value.trim()})});
+ document.getElementById('new-idem').addEventListener('click',()=>{document.getElementById('idem-key').value=uuidv4()});document.getElementById('idem-key').value=uuidv4();
+ document.getElementById('lookup-reset').addEventListener('click',()=>resetWidget('lookup'));document.getElementById('create-reset').addEventListener('click',()=>resetWidget('create'));
+ document.getElementById('lookup-tab').addEventListener('click',()=>pickTab('lookup'));document.getElementById('create-tab').addEventListener('click',()=>pickTab('create'));
+}
+document.addEventListener('DOMContentLoaded',init);
+</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady&render=explicit" async defer></script>
+</head>
+<body><main>
+<header><span class="tag">開發測試工具 · 非正式購物頁</span><h1>豆豆貼｜Turnstile × Supabase 端到端驗證</h1><p class="hint">請從已在 Cloudflare Widget 登記的 GitHub Pages 網域開啟。此頁不會寫入 localStorage，也不會顯示或儲存 Secret Key。</p></header>
+<div class="warning">此測試頁一旦公開上傳至 GitHub Pages，任何知道網址的人都可能看到頁面及設定資訊。測試完成後請刪除檔案並完成 Git commit。建立訂單的按鈕會真的寫入 Supabase，請勿使用真實顧客資料。</div>
+<section class="panel"><h2>共同設定</h2><div class="meta">Project：rbbaqgfmgladxdcwfrey · Site Key：0x4AAAAAAGM8h4BpMAX5SpfJ</div><label for="public-key">Supabase Publishable Key（僅限 sb_publishable_... 公開金鑰）</label><input type="password" id="public-key" autocomplete="off" spellcheck="false" placeholder="sb_publishable_..."><p class="hint">可在 Supabase Dashboard → Project Settings → API Keys 複製。不要填 service_role、sb_secret_ 或資料庫密碼；此值僅保留在目前分頁的記憶體中。</p></section>
+<nav class="tabs" aria-label="測試類型"><button type="button" class="active" id="lookup-tab">A. 查詢既有訂單</button><button type="button" id="create-tab">B. 建立新測試訂單</button></nav>
+<section id="lookup-panel" class="panel"><h2>A. lookup-order 有效 Token 測試</h2><p class="hint">每次查詢都必須先完成驗證。成功查詢後元件會重設，避免重複使用同一 Token。</p><form id="lookup-form"><div class="columns"><div><label for="order-id">測試訂單 UUID</label><input id="order-id" required value="1ac08ba6-3af0-459e-a96a-b0078f4faa17"></div><div><label for="lookup-phone">下單電話</label><input id="lookup-phone" required inputmode="tel" value="0912345678"></div></div><label>Turnstile 人機驗證</label><div class="widget" id="lookup-widget"></div><div class="status" id="lookup-status">等待元件載入…</div><div class="actions"><button type="submit" id="lookup-submit">發送查詢</button><button type="button" class="secondary" id="lookup-reset">重新取得 Token</button></div></form><h3>API 回應</h3><pre class="result" id="lookup-result">尚未送出請求</pre></section>
+<section id="create-panel" class="panel hidden"><h2>B. create-order 有效 Token 測試</h2><p class="hint">固定建立「p1 黃金鮮肉鍋貼 × 1」的外帶測試訂單；預計金額由後端重新計算（先前商品價 NT$85）。</p><form id="create-form"><div class="columns"><div><label for="create-name">測試姓名</label><input id="create-name" value="Turnstile測試" required></div><div><label for="create-phone">測試電話</label><input id="create-phone" value="0912345678" required inputmode="tel"></div></div><label for="idem-key">idempotencyKey（同一筆測試請求保留此值）</label><input id="idem-key" required spellcheck="false"><div class="actions"><button type="button" class="secondary" id="new-idem">建立全新請求 UUID</button></div><label>Turnstile 人機驗證</label><div class="widget" id="create-widget"></div><div class="status" id="create-status">等待元件載入…</div><div class="actions"><button type="submit" id="create-submit">確認並建立測試訂單</button><button type="button" class="secondary" id="create-reset">重新取得 Token</button></div></form><h3>API 回應</h3><pre class="result" id="create-result">尚未送出請求</pre></section>
+<p class="footer">測試方式：先完成 A 的成功查詢，再使用 B 建立新訂單。測試「重複 Token」時，需使用開發者工具/受控測試，不要把 Token 或電話分享給第三方。建立測試訂單後，可透過 SQL 依 idempotencyKey 查核訂單與明細。</p>
+</main></body></html>
