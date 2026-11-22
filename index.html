@@ -189,7 +189,9 @@ function renderOrderResult(result,order){
 
 // 商品從 Supabase 載入，失敗時禁止建立訂單，避免前後端價格不一致。
 async function loadMenu(){try{
- const response=await apiRequest('get-products',{}),d=await response.json();
+ let response=await fetch(ORDER_API_URL+'/get-products',{method:'GET',headers:{apikey:SUPABASE_PUBLISHABLE_KEY},cache:'no-store'});
+ if(response.status===405)response=await apiRequest('get-products',{});
+ const d=await response.json();
  if(!response.ok||!d?.ok||!Array.isArray(d.products))throw Error(d?.error||'商品 API 回應異常');
  const list=d.products.filter(p=>/^[\w-]{1,40}$/.test(p.id)&&Number.isFinite(Number(p.price))).map(p=>({id:p.id,cat:esc(p.cat),name:esc(p.name),desc:esc(p.desc),tag:esc(p.tag),price:Math.round(Number(p.price)),img:images[p.img]||(/^https:\/\//.test(p.img)?p.img:images.dumpling)}));
  if(!list.length)throw Error('Supabase 尚無可販售商品');products=list;menuLoadedFromSupabase=true;
